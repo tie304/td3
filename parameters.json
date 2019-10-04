@@ -1,0 +1,18 @@
+{
+  "env_name": "LunarLanderContinuous-v2",
+  "seed": 0,
+  "start_timesteps": 1e4,
+  "eval_freq": 5e4,
+  "max_timesteps": 5e5,
+  "save_models": true,
+  "expl_noise": 0.1,
+  "batch_size": 100,
+  "discount": 0.99,
+  "tau": 0.005,
+  "policy_noise": 0.2,
+  "noise_clip": 0.5,
+  "policy_freq": 2,
+  "training_render": false,
+  "eval_render": true,
+  "load_train_weights": null
+}

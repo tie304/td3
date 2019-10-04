@@ -1,2 +1,4 @@
 results
 pytorch_models
+.idea
+ modules/__pycache__/*

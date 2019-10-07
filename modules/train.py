@@ -2,8 +2,10 @@ import os
 import json
 import time
 import gym
+from utils.utils import pre_process_states
 import torch
 import numpy as np
+#import pybullet_envs
 from gym import wrappers
 
 from utils.utils import mkdir
@@ -22,10 +24,10 @@ class Train:
         self.state_dim = self.env.observation_space.shape[0]
         self.action_dim = self.env.action_space.shape[0]
         self.max_action = float(self.env.action_space.high[0])
-        self.policy = TD3(self.state_dim, self.action_dim, self.max_action)
+        self.policy = TD3(self.state_dim, self.action_dim, self.max_action, parameters.get('train_with_conv'))
         if parameters.get('load_train_weights'):
             self.policy.load(parameters.get('load_train_weights'), f"pytorch_models/{parameters.get('load_train_weights')}")
-        self.evaluations = [self.evaluate_policy()]
+        self.evaluations = []
         self.max_episode_steps = self.env._max_episode_steps
 
         print(f"state dim: {self.state_dim} \n  action_dim: {self.action_dim} \n max_action: {self.max_action}")
@@ -58,21 +60,34 @@ class Train:
         total_timesteps = 0
         timesteps_since_eval = 0
         episode_num = 0
+        episode_times = []
+        training_times = []
         done = True
         t0 = time.time()
 
-        # We start the main loop over 500,000 timesteps
+        # We start the main loop over n timesteps
         while total_timesteps < self.parameters.get('max_timesteps'):
-
             # If the episode is done
+            episode_start_time = time.time()
             if done:
-
                 # If we are not at the very beginning, we start the training process of the model
                 if total_timesteps != 0:
                     print("Total Timesteps: {} Episode Num: {} Reward: {}".format(total_timesteps, episode_num, episode_reward))
-                    self.policy.train(self.replay_buffer, episode_timesteps, self.parameters.get('batch_size'), self.parameters.get('discount'), self.parameters.get('tau'),
+                    train_time = self.policy.train(self.replay_buffer, episode_timesteps, self.parameters.get('batch_size'), self.parameters.get('discount'), self.parameters.get('tau'),
                                  self.parameters.get('policy_noise'), self.parameters.get('noise_clip'),
                                  self.parameters.get('policy_freq'))
+
+                    training_times.append(train_time)
+
+                    avg_training_times = sum(training_times) / len(training_times)
+                    avg_episode_times = sum(episode_times) / len(episode_times)
+                    total_time = avg_episode_times + avg_training_times
+                    max_timesteps = self.parameters.get('max_timesteps')
+
+                    est_end = ((max_timesteps - total_timesteps) / episode_timesteps) * total_time
+
+
+                    print(f"Estimated completion time:  {est_end / 60} minutes, {(est_end / 60 )/ 60} hours, days: {(est_end / 60) / 60 / 24}")
 
                 # We evaluate the episode and we save the policy
                 if timesteps_since_eval >= self.parameters.get('eval_freq'):
@@ -83,6 +98,8 @@ class Train:
 
                 # When the training step is done, we reset the state of the environment
                 obs = self.env.reset()
+                if self.parameters.get('train_with_conv'):
+                    obs = pre_process_states(obs)
 
                 # Set the Done to False
                 done = False
@@ -111,14 +128,24 @@ class Train:
             # We increase the total reward
             episode_reward += reward
 
+            if self.parameters.get('train_with_conv'):
+                new_obs = pre_process_states(new_obs)
+
+            assert new_obs.shape == obs.shape, f"States dont match in size {new_obs.shape}, {obs.shape}"
+
             # We store the new transition into the Experience Replay memory (ReplayBuffer)
             self.replay_buffer.add((obs, new_obs, action, reward, done_bool))
+
+            if self.parameters.get('training_render'):
+                self.env.render()
 
             # We update the state, the episode timestep, the total timesteps, and the timesteps since the evaluation of the policy
             obs = new_obs
             episode_timesteps += 1
             total_timesteps += 1
             timesteps_since_eval += 1
+            if done:
+                episode_times.append(time.time() - episode_start_time)
 
         # We add the last policy evaluation to our list of evaluations and we save our model
         self.evaluations.append(self.evaluate_policy())

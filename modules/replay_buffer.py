@@ -26,3 +26,6 @@ class ReplayBuffer:
             batch_dones.append(np.array(done, copy=False))
         return np.array(batch_states), np.array(batch_next_states), np.array(batch_actions), np.array(
             batch_rewards).reshape(-1, 1), np.array(batch_dones).reshape(-1, 1)
+
+    def save(self):
+        raise NotImplementedError('not ready yet')

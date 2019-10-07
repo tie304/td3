@@ -2,6 +2,7 @@ import torch
 
 from modules.actor import Actor
 from modules.critic import Critic
+import time
 
 import torch.nn.functional as F
 
@@ -10,30 +11,40 @@ import torch.nn.functional as F
 
 class TD3:
 
-    def __init__(self, state_dim, action_dim, max_action):
+    def __init__(self, state_dim, action_dim, max_action, train_with_conv):
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.actor = Actor(state_dim, action_dim, max_action).to(self.device)
-        self.actor_target = Actor(state_dim, action_dim, max_action).to(self.device)
+        self.train_with_conv = train_with_conv
+        self.actor = Actor(state_dim, action_dim, max_action, train_with_conv).to(self.device)
+        self.actor_target = Actor(state_dim, action_dim, max_action, train_with_conv).to(self.device)
         self.actor_target.load_state_dict(self.actor.state_dict())
         self.actor_optimizer = torch.optim.Adam(self.actor.parameters())
-        self.critic = Critic(state_dim, action_dim).to(self.device)
-        self.critic_target = Critic(state_dim, action_dim).to(self.device)
+        self.critic = Critic(state_dim, action_dim, train_with_conv).to(self.device)
+        self.critic_target = Critic(state_dim, action_dim, train_with_conv).to(self.device)
         self.critic_target.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters())
         self.max_action = max_action
 
     def select_action(self, state):
-        state = torch.Tensor(state.reshape(1, -1)).to(self.device)
+        if self.train_with_conv:
+            state = torch.Tensor(state.reshape(1, 3, 96, 96)).to(self.device)  # TODO re-write for multi and single dim input
+        else:
+            state = torch.Tensor(state.reshape(1,-1)).to(self.device)
+
         return self.actor(state).cpu().data.numpy().flatten()
 
     def train(self, replay_buffer, iterations, batch_size=100, discount=0.99, tau=0.005, policy_noise=0.2,
               noise_clip=0.5, policy_freq=2):
 
+        start_time = time.time()
+
         for it in range(iterations):
+
+            print(it / iterations)
 
             # Step 4: We sample a batch of transitions (s, s’, a, r) from the memory
             batch_states, batch_next_states, batch_actions, batch_rewards, batch_dones = replay_buffer.sample(
                 batch_size)
+
             state = torch.Tensor(batch_states).to(self.device)
             next_state = torch.Tensor(batch_next_states).to(self.device)
             action = torch.Tensor(batch_actions).to(self.device)
@@ -56,6 +67,7 @@ class TD3:
 
             # Step 9: We get the final target of the two Critic models, which is: Qt = r + γ * min(Qt1, Qt2), where γ is the discount factor
             target_Q = reward + ((1 - done) * discount * target_Q).detach()
+
 
             # Step 10: The two Critic models take each the couple (s, a) as input and return two Q-values Q1(s,a) and Q2(s,a) as outputs
             current_Q1, current_Q2 = self.critic(state, action)
@@ -82,6 +94,11 @@ class TD3:
                 # Step 15: Still once every two iterations, we update the weights of the Critic target by polyak averaging
                 for param, target_param in zip(self.critic.parameters(), self.critic_target.parameters()):
                     target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+        end_time = time.time()
+        training_iteration = (end_time - start_time)
+
+        return training_iteration
 
     # Making a save method to save a trained model
     def save(self, filename, directory):
